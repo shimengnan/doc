@@ -8,48 +8,243 @@ Ribbon 提供了客户端的基于HTTP,TCP 的负载均衡.提供了如下基础
 
 ​	遵循特定逻辑,循环服务列表.
 
+## maven 依赖
+
+```xml
+<dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-starter-netflix-ribbon</artifactId>
+</dependency>
+```
+
+## 添加@LoadBalanced 注解
+
+添加@LoadBalanced 注解就可以为RestTemplate整合Ribbon, 添加 负载均衡能力
+
+```java
+@Bean
+@LoadBalanced
+public RestTemplate restTemplate(){
+	return new RestTemplate();
+}
+
+```
+
+
+
 ## Ribbon 的负载均衡组件:
 
-- Rule	
+### Rule	
 
-  从服务列表中获取目标服务的逻辑.下方式已有实现:
+从服务列表中获取目标服务的逻辑.下方式已有实现:
 
-  1. RoundRobinRule
-  2. AvailabilityFilteringRule
-  3. WeightedResponseTimeRule
+1. RoundRobinRule
+2. AvailabilityFilteringRule
+3. WeightedResponseTimeRule
 
-- Ping	后台确保服务的可用性(健康检查?)
+### Ping	
 
-- ServerList	
+后台确保服务的可用性(健康检查?)
 
-  可以是静态或动态的.动态时 使用 `DynamicServerListLoadBalancer` 实现.在特定间隔,后台刷新过滤服务列表
+### ServerList	
 
-  1. Adhoc static server list
-  2. ConfigurationBasedServerList
-  3. DiscoveryEnabledNIWSServerList
+可以是静态或动态的.动态时 使用 `DynamicServerListLoadBalancer` 实现.在特定间隔,后台刷新过滤服务列表
 
-- ServerListFilter
+1. Adhoc static server list
+2. ConfigurationBasedServerList
+3. DiscoveryEnabledNIWSServerList
 
-  ServerListFilter 是`ServerList` 下的一个组件,用于在使用`DynamicServerListLoadBalancer`时过滤服务列表.
+### ServerListFilter
 
-  1. ZoneAffinityServerListFilter
-  2. ServerListSubsetFilter
+ServerListFilter 是`ServerList` 下的一个组件,用于在使用`DynamicServerListLoadBalancer`时过滤服务列表.
 
-
-
-| Bean Type                | Bean Name               |      |
-| ------------------------ | ----------------------- | ---- |
-| IClientConfig            | ribbonClientConfig      |      |
-| IRule                    | ribbonRule              |      |
-| IPing                    | ribbonPing              |      |
-| ServerList<Server>       | ribbonServerList        |      |
-| ServerListFilter<Server> | ribbonServerListFilter  |      |
-| ILoadBanancer            | ribbonLoadBalancer      |      |
-| ServerListUpdater        | ribbonServerListUpdater |      |
-
-
+1. ZoneAffinityServerListFilter
+2. ServerListSubsetFilter
 
 ## 源码
+
+### RibbonClientConfiguration
+
+Ribbon 默认 配置
+
+| Bean Type                | Bean Name               | 默认配置                       |
+| ------------------------ | ----------------------- | ------------------------------ |
+| IClientConfig            | ribbonClientConfig      | DefaultClientConfigImpl        |
+| IRule                    | ribbonRule              | ZoneAvoidanceRule              |
+| IPing                    | ribbonPing              | DummyPing                      |
+| ServerList<Server>       | ribbonServerList        | ConfigurationBasedServerList   |
+| ServerListFilter<Server> | ribbonServerListFilter  | ZonePreferenceServerListFilter |
+| ILoadBanancer            | ribbonLoadBalancer      | ZoneAwareLoadBalancer          |
+| ServerListUpdater        | ribbonServerListUpdater | PollingServerListUpdater       |
+
+可以使用Java Bean 自定义配置--会覆盖RibbonClientConfiguration 关注源码中的 @ConditionalOnMissingBean
+
+坐标:org.springframework.cloud:spring-cloud-netflix-ribbon
+
+```java
+@SuppressWarnings("deprecation")
+@Configuration
+@EnableConfigurationProperties
+// Order is important here, last should be the default, first should be optional
+// https://github.com/spring-cloud/spring-cloud-netflix/issues/2086#issuecomment-316281653
+@Import({ HttpClientConfiguration.class, OkHttpRibbonConfiguration.class,
+		RestClientRibbonConfiguration.class, HttpClientRibbonConfiguration.class })
+public class RibbonClientConfiguration {
+
+	/**
+	 * Ribbon client default connect timeout.
+	 */
+	public static final int DEFAULT_CONNECT_TIMEOUT = 1000;
+
+	/**
+	 * Ribbon client default read timeout.
+	 */
+	public static final int DEFAULT_READ_TIMEOUT = 1000;
+
+	/**
+	 * Ribbon client default Gzip Payload flag.
+	 */
+	public static final boolean DEFAULT_GZIP_PAYLOAD = true;
+
+	@RibbonClientName
+	private String name = "client";
+
+	// TODO: maybe re-instate autowired load balancers: identified by name they could be
+	// associated with ribbon clients
+
+	@Autowired
+	private PropertiesFactory propertiesFactory;
+
+	@Bean
+	@ConditionalOnMissingBean
+	public IClientConfig ribbonClientConfig() {
+		DefaultClientConfigImpl config = new DefaultClientConfigImpl();
+		config.loadProperties(this.name);
+		config.set(CommonClientConfigKey.ConnectTimeout, DEFAULT_CONNECT_TIMEOUT);
+		config.set(CommonClientConfigKey.ReadTimeout, DEFAULT_READ_TIMEOUT);
+		config.set(CommonClientConfigKey.GZipPayload, DEFAULT_GZIP_PAYLOAD);
+		return config;
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public IRule ribbonRule(IClientConfig config) {
+		if (this.propertiesFactory.isSet(IRule.class, name)) {
+			return this.propertiesFactory.get(IRule.class, config, name);
+		}
+		ZoneAvoidanceRule rule = new ZoneAvoidanceRule();
+		rule.initWithNiwsConfig(config);
+		return rule;
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public IPing ribbonPing(IClientConfig config) {
+		if (this.propertiesFactory.isSet(IPing.class, name)) {
+			return this.propertiesFactory.get(IPing.class, config, name);
+		}
+		return new DummyPing();
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	@SuppressWarnings("unchecked")
+	public ServerList<Server> ribbonServerList(IClientConfig config) {
+		if (this.propertiesFactory.isSet(ServerList.class, name)) {
+			return this.propertiesFactory.get(ServerList.class, config, name);
+		}
+		ConfigurationBasedServerList serverList = new ConfigurationBasedServerList();
+		serverList.initWithNiwsConfig(config);
+		return serverList;
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public ServerListUpdater ribbonServerListUpdater(IClientConfig config) {
+		return new PollingServerListUpdater(config);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public ILoadBalancer ribbonLoadBalancer(IClientConfig config,
+			ServerList<Server> serverList, ServerListFilter<Server> serverListFilter,
+			IRule rule, IPing ping, ServerListUpdater serverListUpdater) {
+		if (this.propertiesFactory.isSet(ILoadBalancer.class, name)) {
+			return this.propertiesFactory.get(ILoadBalancer.class, config, name);
+		}
+		return new ZoneAwareLoadBalancer<>(config, rule, ping, serverList,
+				serverListFilter, serverListUpdater);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	@SuppressWarnings("unchecked")
+	public ServerListFilter<Server> ribbonServerListFilter(IClientConfig config) {
+		if (this.propertiesFactory.isSet(ServerListFilter.class, name)) {
+			return this.propertiesFactory.get(ServerListFilter.class, config, name);
+		}
+		ZonePreferenceServerListFilter filter = new ZonePreferenceServerListFilter();
+		filter.initWithNiwsConfig(config);
+		return filter;
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public RibbonLoadBalancerContext ribbonLoadBalancerContext(ILoadBalancer loadBalancer,
+			IClientConfig config, RetryHandler retryHandler) {
+		return new RibbonLoadBalancerContext(loadBalancer, config, retryHandler);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public RetryHandler retryHandler(IClientConfig config) {
+		return new DefaultLoadBalancerRetryHandler(config);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean
+	public ServerIntrospector serverIntrospector() {
+		return new DefaultServerIntrospector();
+	}
+
+	@PostConstruct
+	public void preprocess() {
+		setRibbonProperty(name, DeploymentContextBasedVipAddresses.key(), name);
+	}
+
+	static class OverrideRestClient extends RestClient {
+
+		private IClientConfig config;
+
+		private ServerIntrospector serverIntrospector;
+
+		protected OverrideRestClient(IClientConfig config,
+				ServerIntrospector serverIntrospector) {
+			super();
+			this.config = config;
+			this.serverIntrospector = serverIntrospector;
+			initWithNiwsConfig(this.config);
+		}
+
+		@Override
+		public URI reconstructURIWithServer(Server server, URI original) {
+			URI uri = updateToSecureConnectionIfNeeded(original, this.config,
+					this.serverIntrospector, server);
+			return super.reconstructURIWithServer(server, uri);
+		}
+
+		@Override
+		protected Client apacheHttpClientSpecificInitialization() {
+			ApacheHttpClient4 apache = (ApacheHttpClient4) super.apacheHttpClientSpecificInitialization();
+			apache.getClientHandler().getHttpClient().getParams().setParameter(
+					ClientPNames.COOKIE_POLICY, CookiePolicy.IGNORE_COOKIES);
+			return apache;
+		}
+
+	}
+
+}
+```
 
 ### LoadBalancerAutoConfiguration
 
@@ -555,4 +750,6 @@ public class RestTemplate extends InterceptingHttpAccessor implements RestOperat
 }
 
 ```
+
+## 参考
 

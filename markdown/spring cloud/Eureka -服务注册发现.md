@@ -110,9 +110,20 @@ eureka:
   	#注意,此配置只能配置在application.yml中,如果配置到bootstrap.yml 中可能会导致状态异常
     healthcheck:
       enabled: true
+#配置允许访问endpoints:/actuator/health,/actuator/info
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"      
 ```
 
 
 
 可以通过实现 `com.netflix.appinfo.HealthCheckHandler`中的getStatus方法 来细粒度的控制健康检查
 
+## 参考资料
+
+https://www.jianshu.com/p/1aadc4c85f51
+
+Spring Cloud 与 Docker 
