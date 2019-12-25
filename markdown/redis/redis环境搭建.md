@@ -76,9 +76,7 @@ sentinel parallel-syncs mymaster 1
 
 ## 3 Redis Cluster 配置
 
-### 3.1 redis.conf 配置
-
-#### 2.1.6 cluster  配置（redis.conf）
+### 3.1 cluster  配置（redis.conf）
 
 ```properties
 port  6379
