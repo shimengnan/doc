@@ -85,6 +85,7 @@ feign:
         loggerLevel: full
         errorDecoder: com.example.SimpleErrorDecoder
         retryer: com.example.SimpleRetryer
+        #需要实现 RequestInterceptor 接口
         requestInterceptors:
           - com.example.FooRequestInterceptor
           - com.example.BarRequestInterceptor
@@ -104,6 +105,10 @@ feign:
         connectTimeout: 5000
         readTimeout: 5000
         loggerLevel: basic
+         #需要实现 RequestInterceptor 接口
+        requestInterceptors:
+          - com.example.FooRequestInterceptor
+          - com.example.BarRequestInterceptor
 ```
 
 ### 支持压缩
@@ -138,4 +143,5 @@ feign.client.config.default.loggerLevel 可选参数:
 - `HEADERS` 记录`BASIC`内容,并增加请求头 与 响应头
 - `FULL` 记录请求 与 响应 的 headers,body,元数据
 
-## 手工构建Feign Client
+## Feign Hystrix 支持
+

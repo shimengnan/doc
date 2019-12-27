@@ -1,6 +1,4 @@
-# Hystrix
-
-hystrix 是由Netflix 开源的一个延迟和容错库,用于隔离访问远程系统,服务,或者第三方库,防止级联失败,提升系统的可用性与容错性.
+# 容错-Hystrix
 
 ## 雪崩效应
 
@@ -47,3 +45,200 @@ hystrix 是由Netflix 开源的一个延迟和容错库,用于隔离访问远程
 打开:请求失败率达到一定阈值,不在请求直接返回
 
 半开:打开一段时间后,自动进入半开状态,允许一个请求访问依赖的服务,若调用成功关闭断路器.否则继续保持打开
+
+## Hystrix 实现容错
+
+hystrix 是由Netflix 开源的一个延迟和容错库,用于隔离访问远程系统,服务,或者第三方库,防止**级联失败**,提升系统的**可用性**与**容错性**.
+
+Hystrix主要通过以下几点实现延迟 和 容错:
+
+- 包裹请求:使用HystrixCommand(或HystrixObservableCommand)包裹对依赖的调用逻辑,每个命令在独立线程中执行.(命令模式)
+- 跳闸机制:某服务错误率在某时间窗口内 达到一定阈值,Hystrix 可以 自动或者手动 打开熔断器.停止请求该服务
+- 资源隔离:Hystrix 为每个依赖都维护了一个小型的线程池(或信号量).若该线程池已经满了,发往该依赖的请求就立即拒绝不在排队等候.从而加速失败判定.
+- 监控:Hystrix 可以近乎实时地监控运行指标和配置的变化.例如成功,失败,超时,以及被拒绝的请求.
+- 回退机制: 请求失败,超时,被拒绝,或断路器打开时的兜底方法.返回缺省值
+- 自我修复:断路器打开后,会自动进入**半开**状态.尝试恢复服务.
+
+## Hystrix 使用
+
+Hystrix 依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+</dependency>
+```
+
+启动类添加`@EnableCircuitBreaker`
+
+```java
+@SpringBootApplication
+@EnableCircuitBreaker
+public class Applicatiion {
+    public static void main(String[] args) {
+        SpringApplication.run(Applicatiion.class);
+    }
+}
+```
+
+使用HystrixCommand 注解添加 fallbackMethod
+
+```java
+@Slf4j
+@Service
+public class UserServiceImpl implements UserService {
+    @Autowired
+    private RestTemplate restTemplate;
+
+    public UserPO getUserByIdDefault(String id){
+        UserPO userPO = new UserPO();
+        userPO.setSex("boy");
+        userPO.setAge(22);
+        userPO.setName("smn");
+        return userPO;
+    }
+	/****/
+    @Override
+    @HystrixCommand(fallbackMethod = "getUserByIdDefault")
+    public UserPO getUserById(String id) {
+        UserPO obj = restTemplate.getForObject("http://producer-service/user/"+id,UserPO.class);
+        return obj;
+    }
+}
+```
+
+此时,如果下游服务出现问题.那么就会调用 fallbackMethod 方法.
+
+注意:进入fallbackMethod 不一定断路器处于打开状态.在时间窗口中没有达到打开阈值.
+
+通过引入 actuator 
+
+​	可以通过 /health endpoint 来直观了解断路器状态.
+
+​	可以通过 /hystrix.stream endpoint 
+
+引入actuator
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+注意:添加了 actuator 依赖后,访问/actuator/health 并未返回 hystrix 状态信息.需要在`application.yml` 中 添加
+
+```yaml
+management:
+  endpoint:
+    health:
+      # 展示所有detail 信息包括 hystrix
+      show-details: always
+      #sensitive: false
+  endpoints:
+    web:
+      # 展示endpoint 有哪些
+      exposure:
+        include: health,info,hystrix.stream
+```
+
+当断路器未打开时,访问 `/actuator/health `返回如下:
+
+```json
+{
+	"status": "UP",
+	"details": {
+		"diskSpace": {
+			"status": "UP",
+			"details": {
+				"total": 148671901696,
+				"free": 70056185856,
+				"threshold": 10485760
+			}
+		},
+		"refreshScope": {
+			"status": "UP"
+		},
+		"discoveryComposite": {
+			"status": "UP",
+			"details": {
+				"discoveryClient": {
+					"status": "UP",
+					"details": {
+						"services": ["producer-service"]
+					}
+				},
+				"eureka": {
+					"description": "Remote status from Eureka server",
+					"status": "UP",
+					"details": {
+						"applications": {
+							"PRODUCER-SERVICE": 1
+						}
+					}
+				}
+			}
+		},
+		"hystrix": {
+			"status": "UP"
+		}
+	}
+}
+```
+
+当停掉下游服务,短时间内多次访问待访问接口后, 访问 `/actuator/health` 返回如下:
+
+```json
+{
+	"status": "UP",
+	"details": {
+		"diskSpace": {
+			"status": "UP",
+			"details": {
+				"total": 148671901696,
+				"free": 70056185856,
+				"threshold": 10485760
+			}
+		},
+		"refreshScope": {
+			"status": "UP"
+		},
+		"hystrix": {
+			"status": "CIRCUIT_OPEN",
+			"details": {
+				"openCircuitBreakers": ["UserServiceImpl::getUserById"]
+			}
+		}
+	}
+}
+```
+
+注意: Hystrix 的自动恢复 不是自发的.是需要请求调用,并重试下游接口若成功进入到半开状态,并关闭断路器.
+
+## Hystrix 线程隔离策略 与 传播上下文
+
+Hystrix 中的隔离策略有两种: 
+
+- THREAD-线程隔离 使用该方式,HystrixCommand 会在单独的线程上执行,并发请求受线程池中的线程数量的限制. 默认设置
+- SEMAPHORE-信号量隔离 使用该方式,HystrixCommand  会在 当前线程进行执行,并发请求受信号量数量限制.
+
+一般来说,只有当调用负载非常高时(每个实例每秒调用数百次),需要使用信号量隔离,因为这种场景下使用THREAD 开销会比较高.信号量隔离一般仅适用于非网络调用的隔离.
+
+可以通过 execution.isolation.strategy 来指定隔离策略
+
+```java
+@HystrixCommand(fallbackMethod = "stubMyService",
+    commandProperties = {
+      @HystrixProperty(name="execution.isolation.strategy", value="SEMAPHORE")
+    }
+)
+...
+```
+
+如果发现找不到上下文的运行时异常,可以考虑将隔离策略换成`SEMAPHORE`
+
+## 参考
+
+https://docs.spring.io/spring-boot/docs/current/reference/html/production-ready-features.html#production-ready-endpoints-enabling-endpoints  actuator endpoints doc
+
