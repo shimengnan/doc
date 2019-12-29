@@ -238,7 +238,125 @@ Hystrix 中的隔离策略有两种:
 
 如果发现找不到上下文的运行时异常,可以考虑将隔离策略换成`SEMAPHORE`
 
+一般来说只有当调用负载非常高时
+
+## Hystrix 的Feign 支持
+
+使用`@FeignClient` 注解的`fallback`属性.
+
+```java
+@FeignClient(value = "${user.service.name}",fallback = UserRemoteServiceFallback.class)
+public interface UserRemoteService {
+    @RequestMapping(value = "/user/{id}",method = RequestMethod.GET)
+    UserPO getUserById(@PathVariable("id") String id);
+}
+```
+
+注册fallback 实例
+
+```java
+@Component
+public class UserRemoteServiceFallback implements UserRemoteService {
+
+    public UserPO getUserById(String id){
+        UserPO userPO=new UserPO();
+        userPO.setName(id);
+        userPO.setAge(11);
+        userPO.setSex("aaa");
+        return userPO;
+    }
+}
+```
+
+使用`@FeignClient` 注解的`fallbackFactory`属性.看创建回退,并输出回退原因
+
+```java
+@FeignClient(contextId = "roleRemoteService",value = "${user.service.name}",fallbackFactory = RoleRemoteServiceFallbackFactory.class)
+public interface RoleRemoteService {
+    @RequestMapping(value = "/role/getRoleByUserId/{id}",method = RequestMethod.GET)
+    RolePO getRoleByUserId(String userId);
+}
+```
+
+注册fallbackFactory实例
+
+```java
+@Slf4j
+@Component
+public class RoleRemoteServiceFallbackFactory implements FallbackFactory<RoleRemoteService> {
+    RoleRemoteServiceFallback fallbackService = new RoleRemoteServiceFallback();
+    @Override
+    public RoleRemoteService create(Throwable throwable) {
+        log.error("调用remote 方法失败,原因如下:",throwable);
+        return fallbackService;
+    }
+    private static class RoleRemoteServiceFallback implements RoleRemoteService{
+        @Override
+        public RolePO getRoleByUserId(String userId) {
+            RolePO rolePO= new RolePO();
+            rolePO.setRoleName("fallbackfactory role:"+userId);
+            return rolePO;
+        }
+    }
+}
+```
+
+## Hystrix Dashboard 
+
+Hystrix Dashboard 可视化监控数据
+
+引入hystrix dashboard 依赖
+
+```xml
+<!--添加hystrix dashboard 可视化依赖-->
+<dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-starter-netflix-hystrix-dashboard</artifactId>
+</dependency>
+```
+
+在启动类上使用 `@EnableHystrixDashboard` 注解
+
+不用添加特定配置.直接访问 http://ip:port/hystrix即可
+
+此方式需要手动填写服务的 `hystrix.stream` endpoint
+
+## Hystrix Turbine
+
+从eureka中获取服务,并聚合服务的 `hystrix.stream`  endpoint 到 `turbine.stream`
+
+引入依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-turbine</artifactId>
+</dependency>
+```
+
+配置
+
+```yaml
+server:
+  port: 8080
+eureka:
+  client:
+    service-url:
+      defaultZone: http://centos1:8761/eureka,http://centos2:8761/eureka,http://centos3:8761/eureka,http://centos4:8761/eureka
+    #是否注册到eureka
+    register-with-eureka: true
+    #是否从eureka 上获取注册信息
+    fetch-registry: true
+turbine:
+  app-config: producer-service,consumer-service
+  cluster-name-expression: "'default'"
+```
+
+
+
 ## 参考
 
 https://docs.spring.io/spring-boot/docs/current/reference/html/production-ready-features.html#production-ready-endpoints-enabling-endpoints  actuator endpoints doc
+
+https://github.com/Netflix/Turbine/wiki/Configuration-(1.x) turbine config
 

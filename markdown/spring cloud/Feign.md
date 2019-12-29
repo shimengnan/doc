@@ -145,3 +145,4 @@ feign.client.config.default.loggerLevel 可选参数:
 
 ## Feign Hystrix 支持
 
+见Hystrix 文档
