@@ -45,38 +45,21 @@ public abstract class AbstractQueuedSynchronizer
          * 字段默认初始化为0 用于正常的同步节点,以及条件节点的条件.使用CAS 修改值 或无条件的volatile写
          */
         volatile int waitStatus;
-
-        /**
-         * 
-         */
+			
         volatile Node prev;
 
-        /**
-         * 
-         */
         volatile Node next;
 
-        /**
-         * 
-         */
         volatile Thread thread;
 
-        /**
-         * 
-         */
         Node nextWaiter;
 
-        /**
-         * Returns true if node is waiting in shared mode.
-         */
         final boolean isShared() {
             return nextWaiter == SHARED;
         }
 
         /**
-         * 
-         *
-         * @return the predecessor of this node
+         * 返回当前节点前一节点
          */
         final Node predecessor() throws NullPointerException {
             Node p = prev;
@@ -101,52 +84,36 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
-     * Head of the wait queue, lazily initialized.  Except for
-     * initialization, it is modified only via method setHead.  Note:
-     * If head exists, its waitStatus is guaranteed not to be
-     * CANCELLED.
+     * 等待队列 head
      */
     private transient volatile Node head;
 
     /**
-     * Tail of the wait queue, lazily initialized.  Modified only via
-     * method enq to add new wait node.
+     * 等待队列 tail
      */
     private transient volatile Node tail;
 
     /**
-     * The synchronization state.
+     * 同步状态
      */
     private volatile int state;
 
     /**
-     * Returns the current value of synchronization state.
-     * This operation has memory semantics of a {@code volatile} read.
-     * @return current state value
+     * 返回同步状态
      */
     protected final int getState() {
         return state;
     }
 
     /**
-     * Sets the value of synchronization state.
-     * This operation has memory semantics of a {@code volatile} write.
-     * @param newState the new state value
+     * 设置同步状态
      */
     protected final void setState(int newState) {
         state = newState;
     }
 
     /**
-     * Atomically sets synchronization state to the given updated
-     * value if the current state value equals the expected value.
-     * This operation has memory semantics of a {@code volatile} read
-     * and write.
-     *
-     * @param expect the expected value
-     * @param update the new value
-     * @return {@code true} if successful. False return indicates that the actual
-     *         value was not equal to the expected value.
+     * cas 设置 state 状态值
      */
     protected final boolean compareAndSetState(int expect, int update) {
         // See below for intrinsics setup to support this
@@ -156,6 +123,7 @@ public abstract class AbstractQueuedSynchronizer
     // Queuing utilities
 
     /**
+     * 
      * The number of nanoseconds for which it is faster to spin
      * rather than to use timed park. A rough estimate suffices
      * to improve responsiveness with very short timeouts.
@@ -163,17 +131,16 @@ public abstract class AbstractQueuedSynchronizer
     static final long spinForTimeoutThreshold = 1000L;
 
     /**
-     * Inserts node into queue, initializing if necessary. See picture above.
-     * @param node the node to insert
-     * @return node's predecessor
+     * 确保tail，head 初始化，并将node 添加到队尾
      */
     private Node enq(final Node node) {
         for (;;) {
             Node t = tail;
-            if (t == null) { // Must initialize
+            if (t == null) { // 初始化 head tail 节点
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
+              	//循环cas 设置tail
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
@@ -184,6 +151,7 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
+     * 基于当前线程创建节点并入队列 
      * Creates and enqueues node for current thread and given mode.
      *
      * @param mode Node.EXCLUSIVE for exclusive, Node.SHARED for shared
